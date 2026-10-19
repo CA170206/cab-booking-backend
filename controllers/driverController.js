@@ -111,7 +111,18 @@ const updateRideStatus = async (req, res) => {
     }
 
     const { rideId } = req.params;
-    const { status } = req.body;
+
+if (
+  typeof rideId !== "string" ||
+  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rideId)
+) {
+  return res.status(400).json({
+    success: false,
+    message: "A valid ride ID is required.",
+  });
+}
+
+const { status } = req.body || {};
 
     const allowedTransitions = {
       arriving: "accepted",
