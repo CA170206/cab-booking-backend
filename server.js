@@ -1,4 +1,4 @@
-
+const { authLimiter } = require("./middleware/rateLimitMiddleware");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -20,7 +20,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/rides", rideRoutes);
 app.use("/api/driver", driverRoutes);
 app.use(morgan("dev"));
