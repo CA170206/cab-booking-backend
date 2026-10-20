@@ -19,11 +19,13 @@ app.use(cors({
   origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
+
+app.use(morgan("dev"));
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/rides", rideRoutes);
 app.use("/api/driver", driverRoutes);
-app.use(morgan("dev"));
+
 
 app.get("/", (req, res) => {
   res.json({ message: "CabGo API is running!" });
@@ -47,6 +49,39 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`CabGo backend running at http://localhost:${PORT}`);
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON request body.",
+    });
+  }
+
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      success: false,
+      message: "Request body is too large.",
+    });
+  }
+
+  console.error("Unhandled API error:", err.message);
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error.",
+  });
 });
+
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`CabGo backend running at http://localhost:${PORT}`);
+  });
+}
+
