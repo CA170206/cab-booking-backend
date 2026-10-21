@@ -167,4 +167,75 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login };
+const guestLogin = async (req, res) => {
+  try {
+    const { name, phone } = req.body || {};
+    const guestEmail = "guest.passenger@ridego.com";
+
+    let result = await pool.query(
+      `SELECT id, full_name, email, phone, role FROM profiles WHERE email = $1`,
+      [guestEmail]
+    );
+
+    let user;
+    if (result.rows.length === 0) {
+      const ins = await pool.query(
+        `INSERT INTO profiles (full_name, email, phone, role)
+         VALUES ($1, $2, $3, 'rider')
+         RETURNING id, full_name, email, phone, role`,
+        [
+          name && typeof name === "string" && name.trim() ? name.trim() : "Guest Passenger",
+          guestEmail,
+          phone && typeof phone === "string" && phone.trim() ? phone.trim() : "+91 98765 43210",
+        ]
+      );
+      user = ins.rows[0];
+    } else {
+      user = result.rows[0];
+      if (name && typeof name === "string" && name.trim()) {
+        user.full_name = name.trim();
+        await pool.query(`UPDATE profiles SET full_name = $1 WHERE id = $2`, [name.trim(), user.id]);
+      }
+      if (phone && typeof phone === "string" && phone.trim()) {
+        user.phone = phone.trim();
+        await pool.query(`UPDATE profiles SET phone = $1 WHERE id = $2`, [phone.trim(), user.id]);
+      }
+    }
+
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        message: "Authentication is not configured.",
+      });
+    }
+
+    const token = jwt.sign(
+      { role: "rider", isGuest: true },
+      process.env.JWT_SECRET,
+      {
+        subject: user.id,
+        expiresIn: "7d",
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged in as Guest Passenger.",
+      token,
+      user: {
+        ...user,
+        role: "rider",
+        isGuest: true,
+      },
+    });
+  } catch (error) {
+    console.error("Guest login error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to start guest session.",
+    });
+  }
+};
+
+module.exports = { register, login, guestLogin };
+

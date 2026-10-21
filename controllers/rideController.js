@@ -46,6 +46,8 @@ const requestRide = async (req, res) => {
       pickup_lng,
       dropoff_lat,
       dropoff_lng,
+      passenger_name,
+      passenger_phone,
     } = req.body;
 
     if (
@@ -121,6 +123,21 @@ const requestRide = async (req, res) => {
     // Generate a secure 4-digit ride start OTP
     const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
 
+    let passengerName = typeof passenger_name === "string" && passenger_name.trim() ? passenger_name.trim() : null;
+    let passengerPhone = typeof passenger_phone === "string" && passenger_phone.trim() ? passenger_phone.trim() : null;
+
+    if (!passengerName || !passengerPhone) {
+      try {
+        const riderProf = await pool.query(`SELECT full_name, phone FROM profiles WHERE id = $1`, [req.user.id]);
+        if (riderProf.rows.length > 0) {
+          if (!passengerName) passengerName = riderProf.rows[0].full_name;
+          if (!passengerPhone) passengerPhone = riderProf.rows[0].phone;
+        }
+      } catch (err) {
+        // Fallback gracefully
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO rides (
         rider_id,
@@ -131,9 +148,11 @@ const requestRide = async (req, res) => {
         dropoff_lat,
         dropoff_lng,
         estimated_fare,
-        otp_code
+        otp_code,
+        passenger_name,
+        passenger_phone
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *`,
       [
         req.user.id,
@@ -145,6 +164,8 @@ const requestRide = async (req, res) => {
         dropoffLng,
         estimatedFare,
         otpCode,
+        passengerName,
+        passengerPhone,
       ]
     );
 
@@ -178,15 +199,18 @@ const getMyRides = async (req, res) => {
     const result = await pool.query(
       `SELECT
          r.*,
-         p.full_name AS driver_name,
-         p.phone AS driver_phone,
-         p.vehicle_model AS driver_vehicle_model,
-         p.vehicle_number AS driver_vehicle_number,
-         p.upi_id AS driver_upi_id,
-         p.rating AS driver_rating,
-         p.total_ratings AS driver_total_ratings
+         COALESCE(r.passenger_name, p.full_name, 'Guest Passenger') AS passenger_name,
+         COALESCE(r.passenger_phone, p.phone, 'Not Provided') AS passenger_phone,
+         d.full_name AS driver_name,
+         d.phone AS driver_phone,
+         d.vehicle_model AS driver_vehicle_model,
+         d.vehicle_number AS driver_vehicle_number,
+         d.upi_id AS driver_upi_id,
+         d.rating AS driver_rating,
+         d.total_ratings AS driver_total_ratings
        FROM rides r
-       LEFT JOIN profiles p ON r.driver_id = p.id
+       LEFT JOIN profiles p ON r.rider_id = p.id
+       LEFT JOIN profiles d ON r.driver_id = d.id
        WHERE rider_id = $1
        ORDER BY r.created_at DESC`,
       [req.user.id]
@@ -225,15 +249,18 @@ const getRideDetails = async (req, res) => {
     const result = await pool.query(
       `SELECT
          r.*,
-         p.full_name AS driver_name,
-         p.phone AS driver_phone,
-         p.vehicle_model AS driver_vehicle_model,
-         p.vehicle_number AS driver_vehicle_number,
-         p.upi_id AS driver_upi_id,
-         p.rating AS driver_rating,
-         p.total_ratings AS driver_total_ratings
+         COALESCE(r.passenger_name, p.full_name, 'Guest Passenger') AS passenger_name,
+         COALESCE(r.passenger_phone, p.phone, 'Not Provided') AS passenger_phone,
+         d.full_name AS driver_name,
+         d.phone AS driver_phone,
+         d.vehicle_model AS driver_vehicle_model,
+         d.vehicle_number AS driver_vehicle_number,
+         d.upi_id AS driver_upi_id,
+         d.rating AS driver_rating,
+         d.total_ratings AS driver_total_ratings
        FROM rides r
-       LEFT JOIN profiles p ON r.driver_id = p.id
+       LEFT JOIN profiles p ON r.rider_id = p.id
+       LEFT JOIN profiles d ON r.driver_id = d.id
        WHERE r.id = $1`,
       [rideId]
     );

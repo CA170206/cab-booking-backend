@@ -32,7 +32,7 @@ app.use("/api/profile", profileRoutes);
 
 
 app.get("/", (req, res) => {
-  res.json({ message: "CabGo API is running!" });
+  res.json({ message: "RideGo API is running!" });
 });
 
 app.get("/api/health", async (req, res) => {
@@ -85,7 +85,8 @@ module.exports = app;
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`CabGo backend running at http://localhost:${PORT}`);
+    console.log(`RideGo backend running at http://localhost:${PORT}`);
   });
 }
+
 

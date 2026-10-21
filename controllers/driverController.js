@@ -30,20 +30,23 @@ const getAvailableRides = async (req, res) => {
 
     const result = await pool.query(
       `SELECT
-         id,
-         pickup_address,
-         dropoff_address,
-         pickup_lat,
-         pickup_lng,
-         dropoff_lat,
-         dropoff_lng,
-         estimated_fare,
-         status,
-         created_at
-       FROM rides
-       WHERE status = 'requested'
-         AND driver_id IS NULL
-       ORDER BY created_at ASC`
+         r.id,
+         r.pickup_address,
+         r.dropoff_address,
+         r.pickup_lat,
+         r.pickup_lng,
+         r.dropoff_lat,
+         r.dropoff_lng,
+         r.estimated_fare,
+         r.status,
+         r.created_at,
+         COALESCE(r.passenger_name, p.full_name, 'Guest Passenger') AS passenger_name,
+         COALESCE(r.passenger_phone, p.phone, 'Not Provided') AS passenger_phone
+       FROM rides r
+       LEFT JOIN profiles p ON r.rider_id = p.id
+       WHERE r.status = 'requested'
+         AND r.driver_id IS NULL
+       ORDER BY r.created_at ASC`
     );
 
     let rows = result.rows;
@@ -112,9 +115,9 @@ const acceptRide = async (req, res) => {
       `UPDATE rides
        SET driver_id = $1,
            status = 'accepted',
-           driver_lat = pickup_lat + 0.008,
-           driver_lng = pickup_lng - 0.007,
-           driver_eta_minutes = 4
+           driver_lat = COALESCE(driver_lat, pickup_lat + 0.008),
+           driver_lng = COALESCE(driver_lng, pickup_lng - 0.007),
+           driver_eta_minutes = COALESCE(driver_eta_minutes, 4)
        WHERE id = $2
          AND status = 'requested'
          AND driver_id IS NULL
@@ -144,6 +147,8 @@ const acceptRide = async (req, res) => {
   }
 };
 
+
+
 // Get driver's currently active ride (accepted, arriving, or in_progress)
 const getActiveRide = async (req, res) => {
   try {
@@ -157,8 +162,8 @@ const getActiveRide = async (req, res) => {
     const result = await pool.query(
       `SELECT
          r.*,
-         p.full_name AS passenger_name,
-         p.phone AS passenger_phone
+         COALESCE(r.passenger_name, p.full_name, 'Guest Passenger') AS passenger_name,
+         COALESCE(r.passenger_phone, p.phone, 'Not Provided') AS passenger_phone
        FROM rides r
        LEFT JOIN profiles p ON r.rider_id = p.id
        WHERE r.driver_id = $1
@@ -329,13 +334,41 @@ const updateDriverLocation = async (req, res) => {
       [numLat, numLng, req.user.id]
     );
 
+    let updatedEta = null;
+
     if (rideId && /^[0-9a-f-]{36}$/i.test(rideId)) {
-      await pool.query(
-        `UPDATE rides
-         SET driver_lat = $1, driver_lng = $2
-         WHERE id = $3 AND driver_id = $4`,
-        [numLat, numLng, rideId, req.user.id]
+      const rideQuery = await pool.query(
+        `SELECT id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, status
+         FROM rides
+         WHERE id = $1 AND driver_id = $2`,
+        [rideId, req.user.id]
       );
+
+      if (rideQuery.rows.length > 0) {
+        const ride = rideQuery.rows[0];
+        let targetLat = Number(ride.pickup_lat);
+        let targetLng = Number(ride.pickup_lng);
+
+        if (ride.status === "in_progress") {
+          targetLat = Number(ride.dropoff_lat);
+          targetLng = Number(ride.dropoff_lng);
+        }
+
+        if (targetLat && targetLng && !isNaN(targetLat) && !isNaN(targetLng)) {
+          const distKm = calculateDistanceKm(numLat, numLng, targetLat, targetLng);
+          // Speed ~25 km/h urban traffic
+          updatedEta = Math.max(1, Math.round((distKm / 25) * 60));
+        }
+
+        await pool.query(
+          `UPDATE rides
+           SET driver_lat = $1,
+               driver_lng = $2,
+               driver_eta_minutes = COALESCE($3, driver_eta_minutes)
+           WHERE id = $4 AND driver_id = $5`,
+          [numLat, numLng, updatedEta, rideId, req.user.id]
+        );
+      }
     }
 
     return res.status(200).json({
@@ -343,6 +376,7 @@ const updateDriverLocation = async (req, res) => {
       message: "Location updated successfully.",
       lat: numLat,
       lng: numLng,
+      eta_minutes: updatedEta,
     });
   } catch (error) {
     console.error("Driver location error:", error.message);
