@@ -15,10 +15,28 @@ const pool = require("./db");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust reverse proxy (Render, Vercel, Cloudflare) so req.ip uses client IP instead of proxy IP
+app.set("trust proxy", 1);
 
 app.use(helmet());
 app.use(cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000", "https://ridego-red.vercel.app"],
+  origin: (origin, callback) => {
+    // Allow non-browser requests or matching origins
+    if (!origin) return callback(null, true);
+    const allowed = [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://ridego-red.vercel.app",
+    ];
+    if (
+      allowed.includes(origin) ||
+      origin.endsWith(".vercel.app") ||
+      origin.includes("ridego")
+    ) {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: "100kb" }));
