@@ -6,6 +6,8 @@ const morgan = require("morgan");
 const authRoutes = require("./routes/authRoutes");
 const rideRoutes = require("./routes/rideRoutes");
 const driverRoutes = require("./routes/driverRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const profileRoutes = require("./routes/profileRoutes");
 require("dotenv").config();
 
 const pool = require("./db");
@@ -25,6 +27,8 @@ app.use(morgan("dev"));
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/rides", rideRoutes);
 app.use("/api/driver", driverRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/profile", profileRoutes);
 
 
 app.get("/", (req, res) => {

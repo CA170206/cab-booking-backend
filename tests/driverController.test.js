@@ -130,4 +130,21 @@ describe("Driver controller", () => {
 
     expect(res.status).toHaveBeenCalledWith(409);
   });
+
+  test("returns cancelled indicator if passenger cancelled the ride", async () => {
+    req.body.status = "arriving";
+    pool.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ status: "cancelled" }] });
+
+    await updateRideStatus(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cancelled: true,
+        message: expect.stringContaining("cancelled"),
+      })
+    );
+  });
 });
