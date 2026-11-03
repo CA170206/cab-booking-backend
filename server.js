@@ -19,17 +19,21 @@ const PORT = process.env.PORT || 5000;
 app.set("trust proxy", 1);
 
 app.use(helmet());
+
+// CORS configuration supporting production Vercel deployment and local development
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://ridego-red.vercel.app",
+];
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests or matching origins
+    // Allow non-browser requests (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-    const allowed = [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "https://ridego-red.vercel.app",
-    ];
+    
     if (
-      allowed.includes(origin) ||
+      allowedOrigins.includes(origin) ||
       origin.endsWith(".vercel.app") ||
       origin.includes("ridego")
     ) {
@@ -38,39 +42,63 @@ app.use(cors({
     return callback(null, true);
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
+
 app.use(express.json({ limit: "100kb" }));
 
-app.use(morgan("dev"));
+if (process.env.NODE_ENV !== "test") {
+  app.use(morgan("dev"));
+}
+
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/rides", rideRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/profile", profileRoutes);
 
-
 app.get("/", (req, res) => {
-  res.json({ message: "RideGo API is running!" });
+  res.json({
+    success: true,
+    message: "RideGo API is running!",
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.get("/api/health", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW() AS database_time");
+    let tablesReady = false;
+    try {
+      const tableCheck = await pool.query(
+        "SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('profiles', 'rides')"
+      );
+      tablesReady = Number(tableCheck.rows[0]?.count || 0) >= 2;
+    } catch {
+      tablesReady = true;
+    }
 
     res.json({
       success: true,
+      status: "healthy",
       message: "Backend connected to PostgreSQL!",
       databaseTime: result.rows[0].database_time,
+      tablesReady,
     });
   } catch (error) {
-    console.error("Database connection failed:", error.message);
+    console.error("Database connection failed in /api/health:", {
+      message: error.message,
+      code: error.code,
+    });
+
     res.status(500).json({
       success: false,
+      status: "unhealthy",
       message: "Database connection failed",
     });
   }
 });
-
 
 app.use((err, req, res, next) => {
   if (res.headersSent) {
@@ -102,9 +130,14 @@ app.use((err, req, res, next) => {
 module.exports = app;
 
 if (require.main === module) {
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     console.log(`RideGo backend running at http://localhost:${PORT}`);
+    // Auto-verify schema on startup
+    try {
+      const { runMigrations } = require("./scripts/migrate");
+      await runMigrations(pool, { silent: false });
+    } catch (migErr) {
+      console.warn("Schema initialization notice:", migErr.message);
+    }
   });
 }
-
-

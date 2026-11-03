@@ -1,11 +1,10 @@
-
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
 
 const register = async (req, res) => {
   try {
-    const { full_name, email, phone, password, role } = req.body;
+    const { full_name, email, phone, password, role } = req.body || {};
 
     if (
       typeof full_name !== "string" ||
@@ -22,7 +21,9 @@ const register = async (req, res) => {
       });
     }
 
-    if (!["rider", "driver"].includes(role)) {
+    const normalizedRole = role === "passenger" ? "rider" : role;
+
+    if (!["rider", "driver"].includes(normalizedRole)) {
       return res.status(400).json({
         success: false,
         message: "Role must be rider or driver.",
@@ -68,7 +69,7 @@ const register = async (req, res) => {
         typeof phone === "string" && phone.trim()
           ? phone.trim()
           : null,
-        role,
+        normalizedRole,
         passwordHash,
       ]
     );
@@ -86,18 +87,22 @@ const register = async (req, res) => {
       });
     }
 
-    console.error("Registration error:", error.message);
+    console.error("Registration database/server error:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+    });
 
     return res.status(500).json({
       success: false,
-      message: "Unable to register account.",
+      message: "Unable to register account. Please try again later.",
     });
   }
 };
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
     if (
       typeof email !== "string" ||
@@ -111,16 +116,18 @@ const login = async (req, res) => {
       });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     const result = await pool.query(
       `SELECT id, full_name, email, phone, role, password_hash
        FROM profiles
        WHERE email = $1`,
-      [email.trim().toLowerCase()]
+      [normalizedEmail]
     );
 
     const user = result.rows[0];
 
-    // Use the same response for unknown emails and incorrect passwords.
+    // Use the same response for unknown emails and incorrect passwords
     if (
       !user ||
       !user.password_hash ||
@@ -133,18 +140,18 @@ const login = async (req, res) => {
     }
 
     if (!process.env.JWT_SECRET) {
-      console.error("JWT_SECRET is missing from the environment.");
+      console.error("CRITICAL: JWT_SECRET is missing from the environment.");
       return res.status(500).json({
         success: false,
-        message: "Authentication is not configured.",
+        message: "Authentication service is not configured.",
       });
     }
 
     const token = jwt.sign(
-      { role: user.role },
+      { role: user.role, email: user.email },
       process.env.JWT_SECRET,
       {
-        subject: user.id,
+        subject: String(user.id),
         expiresIn: "1d",
       }
     );
@@ -158,11 +165,15 @@ const login = async (req, res) => {
       user: safeUser,
     });
   } catch (error) {
-    console.error("Login error:", error.message);
+    console.error("Login database/server error:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+    });
 
     return res.status(500).json({
       success: false,
-      message: "Unable to log in.",
+      message: "Authentication service temporarily unavailable. Please try again later.",
     });
   }
 };
@@ -203,17 +214,18 @@ const guestLogin = async (req, res) => {
     }
 
     if (!process.env.JWT_SECRET) {
+      console.error("CRITICAL: JWT_SECRET is missing from the environment.");
       return res.status(500).json({
         success: false,
-        message: "Authentication is not configured.",
+        message: "Authentication service is not configured.",
       });
     }
 
     const token = jwt.sign(
-      { role: "rider", isGuest: true },
+      { role: "rider", isGuest: true, email: user.email },
       process.env.JWT_SECRET,
       {
-        subject: user.id,
+        subject: String(user.id),
         expiresIn: "7d",
       }
     );
@@ -229,13 +241,16 @@ const guestLogin = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Guest login error:", error.message);
+    console.error("Guest login database/server error:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+    });
     return res.status(500).json({
       success: false,
-      message: "Unable to start guest session.",
+      message: "Unable to start guest session. Please try again later.",
     });
   }
 };
 
 module.exports = { register, login, guestLogin };
-

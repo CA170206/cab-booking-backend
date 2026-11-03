@@ -1,7 +1,10 @@
 const bcrypt = require("bcryptjs");
-const pool = require("../db");
+const defaultPool = require("../db");
 
-async function ensureDemoAccounts() {
+async function ensureDemoAccounts(customPool = null) {
+  const pool = customPool || defaultPool;
+  const isDirectRun = !customPool;
+
   try {
     const passwordHash = await bcrypt.hash("password123", 12);
 
@@ -20,7 +23,6 @@ async function ensureDemoAccounts() {
         passwordHash,
       ]
     );
-    console.log("Verified Guest Passenger: guest.passenger@ridego.com / password123");
 
     // 2. Demo Rider (legacy compat)
     await pool.query(
@@ -30,7 +32,7 @@ async function ensureDemoAccounts() {
        SET role = 'rider', password_hash = $5
        RETURNING id, full_name, email, role;`,
       [
-        "Guest Passenger",
+        "Demo Passenger",
         "rider.demo@cabgo.com",
         "+91 98765 43210",
         "rider",
@@ -56,7 +58,6 @@ async function ensureDemoAccounts() {
         "ridego.driver@okhdfcbank",
       ]
     );
-    console.log("Verified Driver: driver@ridego.com / password123");
 
     // 4. Legacy driver email compat
     await pool.query(
@@ -76,12 +77,23 @@ async function ensureDemoAccounts() {
         "ridego.driver@okhdfcbank",
       ]
     );
-    console.log("Verified Driver compat: driver.demo@cabgo.com / password123");
+
+    console.log("Verified demo accounts (passenger & driver) in database.");
   } catch (err) {
     console.error("Seed error:", err.message);
+    if (isDirectRun) {
+      process.exit(1);
+    }
+    throw err;
   } finally {
-    await pool.end();
+    if (isDirectRun) {
+      await pool.end();
+    }
   }
 }
 
-ensureDemoAccounts();
+if (require.main === module) {
+  ensureDemoAccounts();
+}
+
+module.exports = { ensureDemoAccounts };

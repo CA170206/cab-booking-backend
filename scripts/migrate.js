@@ -1,8 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const pool = require('../db');
+const defaultPool = require('../db');
+const { ensureDemoAccounts } = require('./seed-demo');
 
-async function runMigration() {
+async function runMigrations(customPool = null, options = { silent: false }) {
+  const pool = customPool || defaultPool;
+  const isDirectRun = !customPool;
+
   try {
     const migrationsDir = path.join(__dirname, '..', 'migrations');
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
@@ -10,17 +14,30 @@ async function runMigration() {
     for (const file of files) {
       const sqlPath = path.join(migrationsDir, file);
       const sql = fs.readFileSync(sqlPath, 'utf8');
-      console.log('Applying migration:', file);
+      if (!options.silent) console.log('Applying migration:', file);
       await pool.query(sql);
-      console.log('Successfully applied:', file);
+      if (!options.silent) console.log('Successfully applied:', file);
     }
+
+    // Automatically ensure demo accounts exist
+    await ensureDemoAccounts(pool);
+    if (!options.silent) console.log('All migrations and seeds applied successfully.');
+    return { success: true };
   } catch (err) {
     console.error('Migration failed:', err.message);
-    process.exit(1);
+    if (isDirectRun) {
+      process.exit(1);
+    }
+    throw err;
   } finally {
-    await pool.end();
+    if (isDirectRun) {
+      await pool.end();
+    }
   }
 }
 
-runMigration();
+if (require.main === module) {
+  runMigrations();
+}
 
+module.exports = { runMigrations };
