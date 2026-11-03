@@ -92,10 +92,33 @@ app.get("/api/health", async (req, res) => {
       code: error.code,
     });
 
+    // Provide safe diagnostic metadata (never passwords) to pinpoint host/connection issues
+    const rawUrl = process.env.DATABASE_URL || process.env.DATABASE_INTERNAL_URL || "";
+    let parsedHost = process.env.DB_HOST || null;
+    let parsedDatabase = process.env.DB_NAME || null;
+    let parsedUser = process.env.DB_USER || null;
+
+    if (rawUrl) {
+      try {
+        const u = new URL(rawUrl.replace(/\[|\]/g, ""));
+        parsedHost = u.hostname;
+        parsedDatabase = u.pathname.replace(/^\//, "");
+        parsedUser = u.username;
+      } catch {}
+    }
+
     res.status(500).json({
       success: false,
       status: "unhealthy",
       message: "Database connection failed",
+      errorMessage: error.message,
+      errorCode: error.code || null,
+      diagnostics: {
+        usingConnectionString: Boolean(rawUrl),
+        host: parsedHost,
+        database: parsedDatabase,
+        user: parsedUser,
+      },
     });
   }
 });
